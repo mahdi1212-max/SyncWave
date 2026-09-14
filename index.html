@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<meta name="theme-color" content="#0d0d12" />
+<title>موزیک پلیر سینک</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #0d0d12; --card: #16161d; --card-2: #1e1e28;
+    --accent: #7c5cff; --accent-2: #22d3ee;
+    --text: #ececf1; --muted: #8a8a99;
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html, body {
+    height: 100%; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+  }
+  body::before {
+    content: ""; position: fixed; inset: 0;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, #2a1e5c 0%, transparent 60%),
+      radial-gradient(900px 500px at 110% 110%, #0f3b4a 0%, transparent 55%);
+    z-index: -1; transition: opacity .6s;
+  }
+  body:not(.playing)::before { opacity: .55; }
+
+  .app { display: grid; grid-template-columns: 380px 1fr; height: 100vh; gap: 16px; padding: 16px; }
+  .panel { background: var(--card); border: 1px solid #ffffff10; border-radius: 20px; padding: 18px; }
+
+  /* ---------- Player ---------- */
+  .player { display: flex; flex-direction: column; gap: 18px; position: relative; }
+  .mini-progress { display: none; }
+  .close-btn { display: none; }
+
+  .cover {
+    aspect-ratio: 1 / 1; width: 100%; border-radius: 16px;
+    background: linear-gradient(135deg, #7c5cff33, #22d3ee33);
+    display: grid; place-items: center; position: relative; overflow: hidden;
+    border: 1px solid #ffffff10;
+  }
+  .cover canvas { width: 100%; height: 100%; display: block; position: relative; z-index: 1; }
+  .cover .note { position: absolute; font-size: 84px; opacity: .25; z-index: 0; }
+
+  .track-info { text-align: center; }
+  .track-info h2 { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .track-info p { color: var(--muted); font-size: 13px; margin-top: 4px; direction: ltr; }
+
+  .progress { width: 100%; height: 6px; background: #ffffff14; border-radius: 999px; cursor: pointer; position: relative; direction: ltr; touch-action: none; }
+  .progress .fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); border-radius: 999px; transition: width .08s linear; }
+  .time-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); direction: ltr; margin-top: -8px; }
+
+  .controls { display: flex; justify-content: center; align-items: center; gap: 14px; }
+  .ctrl {
+    width: 44px; height: 44px; border-radius: 50%;
+    border: 1px solid #ffffff14; background: var(--card-2); color: var(--text);
+    display: grid; place-items: center; cursor: pointer; font-size: 18px;
+    transition: background .15s, transform .1s, color .15s; user-select: none;
+  }
+  .ctrl:active { transform: scale(.92); }
+  .ctrl.active { color: var(--accent-2); border-color: var(--accent-2); }
+  .ctrl.play {
+    width: 60px; height: 60px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border: none; color: #0d0d12; font-size: 24px; font-weight: 900;
+    box-shadow: 0 6px 20px -6px var(--accent);
+  }
+
+  .volume-row { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 13px; }
+  .volume-row input[type=range] { flex: 1; accent-color: var(--accent); }
+
+  /* ---------- Playlist ---------- */
+  .playlist { display: flex; flex-direction: column; overflow: hidden; }
+  .playlist-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .playlist-head h3 { font-size: 15px; }
+  .playlist-head .actions { display: flex; gap: 8px; }
+  .btn {
+    background: var(--card-2); border: 1px solid #ffffff14; color: var(--text);
+    padding: 8px 12px; border-radius: 10px; font-size: 13px; cursor: pointer;
+    transition: background .15s, transform .1s; user-select: none;
+  }
+  .btn:active { transform: scale(.96); }
+  .btn.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #0d0d12; border: none; font-weight: 700; }
+
+  .drop {
+    border: 2px dashed #ffffff20; border-radius: 14px; padding: 22px; text-align: center;
+    color: var(--muted); font-size: 13px; margin-bottom: 12px; transition: all .15s; cursor: pointer;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: #7c5cff11; color: var(--text); }
+  ul.tracks { list-style: none; overflow-y: auto; flex: 1; padding-right: 4px; -webkit-overflow-scrolling: touch; }
+  ul.tracks::-webkit-scrollbar { width: 8px; }
+  ul.tracks::-webkit-scrollbar-thumb { background: #ffffff1a; border-radius: 4px; }
+  li.track {
+    display: flex; align-items: center; gap: 10px; padding: 12px 12px; border-radius: 10px;
+    cursor: pointer; transition: background .12s; font-size: 14px;
+  }
+  li.track:hover { background: #ffffff0d; }
+  li.track:active { background: #ffffff14; }
+  li.track.active { background: linear-gradient(90deg, #7c5cff33, transparent); color: var(--accent-2); }
+  li.track .idx { width: 22px; color: var(--muted); font-size: 12px; text-align: center; }
+  li.track.active .idx { color: var(--accent-2); }
+  li.track .name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  li.track .remove { opacity: 0; color: #ff6b81; background: none; border: none; cursor: pointer; font-size: 16px; padding: 6px 8px; }
+  li.track:hover .remove { opacity: 1; }
+  .hint { font-size: 11px; color: var(--muted); text-align: center; margin-top: 10px; }
+
+  /* ---------- Listeners ---------- */
+  .listeners {
+    display: flex; gap: 8px; overflow-x: auto; padding: 4px 0 10px;
+    scrollbar-width: none; min-height: 0;
+  }
+  .listeners::-webkit-scrollbar { display: none; }
+  .listeners:empty { display: none; }
+  .chip {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 6px;
+    padding: 8px 12px; border-radius: 999px; background: var(--card-2);
+    border: 1px solid #ffffff14; font-size: 12px; cursor: pointer;
+    transition: all .15s; white-space: nowrap;
+  }
+  .chip:hover { background: #2a2a36; }
+  .chip.me { border-color: var(--accent-2); color: var(--accent-2); cursor: default; }
+  .chip.following {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: #0d0d12; border-color: transparent; font-weight: 700;
+  }
+  .chip .dot-live {
+    width: 7px; height: 7px; border-radius: 50%; background: #22d3ee;
+    box-shadow: 0 0 6px #22d3ee; animation: pulse 1.4s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+  .chip .t { color: inherit; opacity: .7; direction: ltr; font-variant-numeric: tabular-nums; }
+
+  /* ---------- Status ---------- */
+  .status {
+    position: fixed; top: calc(12px + var(--safe-top)); left: 50%; transform: translateX(-50%);
+    background: #16161dcc; border: 1px solid #ffffff20; padding: 6px 14px;
+    border-radius: 999px; font-size: 12px; color: var(--muted); z-index: 300;
+    display: flex; align-items: center; gap: 8px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    transition: opacity .3s; pointer-events: none;
+  }
+  .status .dot { width: 8px; height: 8px; border-radius: 50%; background: #ff6b81; transition: background .2s; }
+  .status.on .dot { background: #22d3ee; box-shadow: 0 0 8px #22d3ee; }
+  body.player-open .status { opacity: 0; }
+
+  /* ---------- Name modal ---------- */
+  .modal-bg {
+    position: fixed; inset: 0; background: #000a; z-index: 500;
+    display: grid; place-items: center; padding: 20px;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    opacity: 0; pointer-events: none; transition: opacity .3s;
+  }
+  .modal-bg.show { opacity: 1; pointer-events: auto; }
+  .modal {
+    width: 100%; max-width: 380px; background: var(--card);
+    border: 1px solid #ffffff14; border-radius: 22px; padding: 28px 22px;
+    transform: translateY(10px) scale(.96); transition: transform .3s;
+  }
+  .modal-bg.show .modal { transform: none; }
+  .modal h2 { font-size: 20px; margin-bottom: 6px; text-align: center; }
+  .modal p { font-size: 13px; color: var(--muted); text-align: center; margin-bottom: 20px; }
+  .modal input {
+    width: 100%; background: var(--card-2); border: 1px solid #ffffff14;
+    color: var(--text); padding: 14px 16px; border-radius: 12px; font-size: 16px;
+    outline: none; transition: border .15s; direction: rtl;
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal button {
+    width: 100%; margin-top: 14px; padding: 14px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    border: none; border-radius: 12px; color: #0d0d12; font-weight: 800;
+    font-size: 15px; cursor: pointer;
+  }
+  .modal button:active { transform: scale(.98); }
+
+  /* ============================================================
+     MOBILE
+     ============================================================ */
+  @media (max-width: 900px) {
+    .app { display: block; height: 100vh; padding: 0; gap: 0; }
+    .playlist {
+      height: 100vh; border-radius: 0; border: none;
+      padding: calc(16px + var(--safe-top)) 14px calc(120px + var(--safe-bottom));
+      background: transparent;
+    }
+    .playlist-head h3 { font-size: 18px; }
+    .hint { display: none; }
+
+    .player {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      height: calc(72px + var(--safe-bottom));
+      padding: 0 14px var(--safe-bottom);
+      border-radius: 22px 22px 0 0; background: #16161df2;
+      backdrop-filter: blur(24px) saturate(180%);
+      -webkit-backdrop-filter: blur(24px) saturate(180%);
+      border: 1px solid #ffffff14; border-bottom: none;
+      box-shadow: 0 -8px 32px rgba(0,0,0,.5); z-index: 100;
+      display: flex; flex-direction: row; align-items: center; gap: 12px;
+      overflow: hidden;
+      transition: height .38s cubic-bezier(.4,0,.2,1), border-radius .38s, padding .38s;
+      cursor: pointer;
+    }
+    .player.expanded {
+      height: 100vh;
+      padding: calc(20px + var(--safe-top)) 20px calc(20px + var(--safe-bottom));
+      border-radius: 0; flex-direction: column; align-items: stretch;
+      gap: 20px; overflow-y: auto; cursor: default;
+    }
+
+    .mini-progress {
+      display: block; position: absolute; top: 0; left: 0; right: 0;
+      height: 3px; background: #ffffff10; overflow: hidden;
+    }
+    .mini-progress-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width .2s linear;
+    }
+    .player.expanded .mini-progress { display: none; }
+
+    .close-btn {
+      position: absolute; top: calc(16px + var(--safe-top)); right: 16px;
+      width: 40px; height: 40px; border-radius: 50%; background: #ffffff0d;
+      border: 1px solid #ffffff14; color: var(--text); font-size: 18px;
+      align-items: center; justify-content: center; cursor: pointer;
+      z-index: 3; user-select: none;
+    }
+    .player.expanded .close-btn { display: flex; }
+
+    .player:not(.expanded) .cover {
+      flex: 0 0 52px; width: 52px; height: 52px;
+      aspect-ratio: 1; border-radius: 12px; order: 1;
+    }
+    .player:not(.expanded) .cover .note { font-size: 28px; }
+
+    .player.expanded .cover {
+      flex: 0 0 auto; width: min(78vw, 52vh); height: min(78vw, 52vh);
+      align-self: center; margin-top: 24px; border-radius: 24px;
+      box-shadow: 0 20px 60px -20px rgba(124,92,255,.5);
+    }
+
+    .player:not(.expanded) .track-info { flex: 1; text-align: right; min-width: 0; order: 2; }
+    .player:not(.expanded) .track-info h2 { font-size: 14px; font-weight: 600; }
+    .player:not(.expanded) .track-info p { font-size: 11px; margin-top: 2px; }
+
+    .player.expanded .track-info { text-align: center; margin-top: 4px; }
+    .player.expanded .track-info h2 { font-size: 22px; }
+    .player.expanded .track-info p { font-size: 14px; margin-top: 6px; }
+
+    .player:not(.expanded) .controls { flex: 0 0 auto; order: 3; gap: 0; }
+    .player:not(.expanded) .controls > *:not(#play) { display: none; }
+    .player:not(.expanded) .controls #play { width: 46px; height: 46px; font-size: 18px; }
+
+    .player.expanded .controls { gap: 18px; margin-top: auto; padding: 12px 0; }
+    .player.expanded .ctrl { width: 52px; height: 52px; font-size: 20px; }
+    .player.expanded .ctrl.play { width: 72px; height: 72px; font-size: 28px; box-shadow: 0 10px 30px -8px var(--accent); }
+
+    .player:not(.expanded) > .progress,
+    .player:not(.expanded) > .time-row,
+    .player:not(.expanded) > .volume-row,
+    .player:not(.expanded) > .hint { display: none; }
+
+    .player.expanded .progress { height: 8px; }
+    .player.expanded .time-row { font-size: 13px; margin-top: -14px; }
+    .player.expanded .volume-row { font-size: 14px; }
+    .player.expanded .hint { display: block; font-size: 12px; text-align: center; margin-top: 4px; }
+    .player.expanded .hint::before { content: "برای بستن، پایین بکش ↓"; }
+
+    li.track { padding: 14px 12px; font-size: 15px; }
+    li.track .remove { opacity: 1; font-size: 18px; }
+    .btn { padding: 10px 14px; font-size: 14px; }
+    .drop { padding: 26px 16px; }
+    body.player-open .status { opacity: 0; pointer-events: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="status" id="status"><span class="dot"></span><span id="statusText">اتصال...</span></div>
+
+<div class="app">
+  <section class="panel player" id="playerPanel">
+    <div class="mini-progress"><div class="mini-progress-fill" id="miniProgressFill"></div></div>
+    <button class="close-btn" id="closeBtn" aria-label="بستن">✕</button>
+    <div class="cover">
+      <span class="note">♪</span>
+      <canvas id="viz"></canvas>
+    </div>
+    <div class="track-info">
+      <h2 id="title">آهنگی انتخاب نشده</h2>
+      <p id="subtitle">آهنگ رو از لیست انتخاب کن</p>
+    </div>
+    <div class="progress" id="progress"><div class="fill" id="fill"></div></div>
+    <div class="time-row"><span id="cur">0:00</span><span id="dur">0:00</span></div>
+    <div class="controls">
+      <button class="ctrl" id="shuffle" title="پخش تصادفی">🔀</button>
+      <button class="ctrl" id="prev" title="قبلی">⏮</button>
+      <button class="ctrl play" id="play" title="پخش/توقف">▶</button>
+      <button class="ctrl" id="next" title="بعدی">⏭</button>
+      <button class="ctrl" id="repeat" title="تکرار">🔁</button>
+    </div>
+    <div class="volume-row">
+      <span>🔊</span>
+      <input type="range" id="volume" min="0" max="1" step="0.01" value="0.9" />
+      <span id="volLabel">90%</span>
+    </div>
+    <div class="hint">Space = پخش | ← → = ۵ ثانیه | ↑ ↓ = صدا</div>
+  </section>
+
+  <section class="panel playlist">
+    <div class="listeners" id="listeners"></div>
+    <div class="playlist-head">
+      <h3>لیست پخش <span id="count" style="color:var(--muted)">(0)</span></h3>
+      <div class="actions">
+        <button class="btn primary" id="addBtn">آپلود</button>
+        <button class="btn" id="refreshBtn">↻</button>
+      </div>
+    </div>
+    <div class="drop" id="drop">
+      🎵 فایل‌های صوتی رو بکش و رها کن
+      <br /><small>یا کلیک کن</small>
+    </div>
+    <ul class="tracks" id="tracks"></ul>
+  </section>
+</div>
+
+<!-- name modal -->
+<div class="modal-bg" id="nameModal">
+  <div class="modal">
+    <h2>👋 خوش اومدی</h2>
+    <p>اسمت چیه؟ تا بقیه بدونن کی داری چی گوش میدی</p>
+    <input type="text" id="nameInput" placeholder="مثلاً رضا" maxlength="24" autocomplete="off" />
+    <button id="nameSave">شروع</button>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="audio/*" multiple hidden />
+<audio id="audio" crossorigin="anonymous"></audio>
+
+<script>
+// ================= service worker =================
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").then(
+      (r) => console.log("SW registered:", r.scope),
+      (e) => console.warn("SW failed:", e)
+    );
+  });
+}
+
+// ================= dom =================
+const $ = (id) => document.getElementById(id);
+const audio = $("audio");
+const fileInput = $("fileInput");
+const drop = $("drop");
+const tracksEl = $("tracks");
+const countEl = $("count");
+const titleEl = $("title");
+const subtitleEl = $("subtitle");
+const fillEl = $("fill");
+const curEl = $("cur");
+const durEl = $("dur");
+const playBtn = $("play");
+const prevBtn = $("prev");
+const nextBtn = $("next");
+const shuffleBtn = $("shuffle");
+const repeatBtn = $("repeat");
+const volume = $("volume");
+const volLabel = $("volLabel");
+const progress = $("progress");
+const viz = $("viz");
+const statusEl = $("status");
+const statusText = $("statusText");
+const playerPanel = $("playerPanel");
+const closeBtn = $("closeBtn");
+const miniProgressFill = $("miniProgressFill");
+const listenersEl = $("listeners");
+const nameModal = $("nameModal");
+const nameInput = $("nameInput");
+const nameSave = $("nameSave");
+
+// ================= state =================
+let tracks = [];
+let current = -1;
+let shuffle = false;
+let repeat = "off";
+let remoteUpdate = false;
+
+let myName = localStorage.getItem("mp_name") || "";
+let followingId = null;
+let lastPresenceSent = 0;
+let presenceTimer = null;
+
+// ================= haptics =================
+function haptic(ms = 8) { try { navigator.vibrate?.(ms); } catch {} }
+
+// ================= name modal =================
+function askName() {
+  nameModal.classList.add("show");
+  setTimeout(() => nameInput.focus(), 250);
+}
+nameSave.addEventListener("click", saveName);
+nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveName(); });
+function saveName() {
+  const n = nameInput.value.trim().slice(0, 24) || "بی‌نام";
+  myName = n;
+  localStorage.setItem("mp_name", n);
+  nameModal.classList.remove("show");
+  connectWS();
+  loadTracks();
+  haptic(10);
+}
+
+// ================= websocket =================
+let ws, wsReady = false;
+function connectWS() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => {
+    wsReady = true;
+    statusEl.classList.add("on");
+    statusText.textContent = "متصل";
+    send({ type: "hello", name: myName });
+    startPresenceLoop();
+  };
+  ws.onclose = () => {
+    wsReady = false;
+    statusEl.classList.remove("on");
+    statusText.textContent = "قطع - تلاش مجدد...";
+    setTimeout(connectWS, 2000);
+  };
+  ws.onmessage = (e) => {
+    try { handleRemote(JSON.parse(e.data)); } catch {}
+  };
+}
+function send(obj) {
+  if (wsReady && ws.readyState === 1) ws.send(JSON.stringify(obj));
+}
+
+// ================= presence =================
+function sendPresence(force = false) {
+  const now = Date.now();
+  if (!force && now - lastPresenceSent < 1500) return;
+  lastPresenceSent = now;
+  send({
+    type: "presence",
+    track: tracks[current]?.name ?? null,
+    time: audio.currentTime || 0,
+    playing: !audio.paused && !audio.ended,
+  });
+}
+function startPresenceLoop() {
+  if (presenceTimer) clearInterval(presenceTimer);
+  sendPresence(true);
+  presenceTimer = setInterval(() => sendPresence(true), 2500);
+}
+
+function handleRemote(msg) {
+  if (msg.type === "presence_list") {
+    renderListeners(msg.users);
+    applyFollow(msg.users);
+  } else if (msg.type === "tracks_changed") {
+    loadTracks();
+  }
+}
+
+function renderListeners(users) {
+  listenersEl.innerHTML = "";
+  // me
+  const meChip = document.createElement("div");
+  meChip.className = "chip me";
+  meChip.textContent = `🎧 ${myName} (تو)`;
+  listenersEl.appendChild(meChip);
+
+  for (const u of users) {
+    const isMe = u.name === myName;
+    const chip = document.createElement("div");
+    chip.className = "chip";
+    if (u.id === followingId) chip.classList.add("following");
+
+    const isPlaying = u.playing;
+    const trackShort = u.track ? u.track.replace(/\.[^.]+$/, "").slice(0, 16) : "—";
+    const t = fmt(u.time);
+    chip.innerHTML = isPlaying
+      ? `<span class="dot-live"></span><span>${escapeHtml(u.name)}${isMe ? " (تو)" : ""}</span><span class="t">${escapeHtml(trackShort)} · ${t}</span>`
+      : `<span>💤 ${escapeHtml(u.name)}${isMe ? " (تو)" : ""}</span>`;
+
+    if (!isMe) {
+      chip.addEventListener("click", () => {
+        if (u.id === followingId) {
+          followingId = null;
+          haptic(8);
+        } else {
+          followingId = u.id;
+          jumpToUser(u);
+          haptic(12);
+        }
+        renderListeners(users);
+      });
+    }
+    listenersEl.appendChild(chip);
+  }
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+}
+
+// jump exactly to what user is listening to right now
+function jumpToUser(u) {
+  if (!u.track) return;
+  const idx = tracks.findIndex((t) => t.name === u.track);
+  if (idx < 0) return;
+  const drift = (Date.now() - u.ts) / 1000;
+  const targetTime = u.time + (u.playing ? drift : 0);
+  remoteUpdate = true;
+  playIndex(idx, u.playing, targetTime);
+  setTimeout(() => { remoteUpdate = false; }, 500);
+}
+
+// auto-follow: keep in sync as long as following
+let lastFollowSync = 0;
+function applyFollow(users) {
+  if (!followingId) return;
+  const u = users.find((x) => x.id === followingId);
+  if (!u) { followingId = null; return; }
+
+  const now = Date.now();
+  if (now - lastFollowSync < 900) return;
+  lastFollowSync = now;
+
+  if (!u.track) return;
+  const idx = tracks.findIndex((t) => t.name === u.track);
+  if (idx < 0) return;
+  const drift = (now - u.ts) / 1000;
+  const targetTime = u.time + (u.playing ? drift : 0);
+
+  if (current !== idx) {
+    remoteUpdate = true;
+    playIndex(idx, u.playing, targetTime);
+    setTimeout(() => { remoteUpdate = false; }, 500);
+    return;
+  }
+  if (Math.abs(audio.currentTime - targetTime) > 2.5) {
+    audio.currentTime = targetTime;
+  }
+  if (u.playing && audio.paused) audio.play().catch(() => {});
+  if (!u.playing && !audio.paused) audio.pause();
+}
+
+function breakFollow() {
+  if (followingId) followingId = null;
+}
+
+// ================= visualizer =================
+let audioCtx, analyser, source, freqData;
+function ensureAudioGraph() {
+  if (audioCtx) return;
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  source = audioCtx.createMediaElementSource(audio);
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  freqData = new Uint8Array(analyser.frequencyBinCount);
+  source.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  drawViz();
+}
+function drawViz() {
+  requestAnimationFrame(drawViz);
+  if (!analyser) return;
+  const dpr = devicePixelRatio || 1;
+  const cw = viz.clientWidth, ch = viz.clientHeight;
+  if (!cw || !ch) return;
+  const w = viz.width = cw * dpr;
+  const h = viz.height = ch * dpr;
+  analyser.getByteFrequencyData(freqData);
+  const ctx = viz.getContext("2d");
+  ctx.clearRect(0, 0, w, h);
+  const bars = cw < 100 ? 16 : 40;
+  const gap = 3 * dpr;
+  const bw = (w - gap * (bars - 1)) / bars;
+  for (let i = 0; i < bars; i++) {
+    const v = freqData[Math.floor(i * freqData.length / bars)] / 255;
+    const bh = Math.max(3 * dpr, v * h * 0.85);
+    const x = i * (bw + gap);
+    const y = h - bh;
+    const g = ctx.createLinearGradient(0, h, 0, y);
+    g.addColorStop(0, "rgba(34,211,238,0.9)");
+    g.addColorStop(1, "rgba(124,92,255,0.9)");
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.roundRect(x, y, bw, bh, Math.min(bw / 2, 6));
+    ctx.fill();
+  }
+}
+
+// ================= tracks =================
+async function loadTracks() {
+  try {
+    const res = await fetch("/api/tracks");
+    const data = await res.json();
+    const prevName = tracks[current]?.name;
+    tracks = data;
+    if (prevName) {
+      const idx = tracks.findIndex((t) => t.name === prevName);
+      current = idx;
+    } else if (current >= tracks.length) current = -1;
+    renderTracks();
+  } catch {}
+}
+
+async function uploadFiles(files) {
+  const audios = [...files].filter((f) =>
+    f.type.startsWith("audio/") || /\.(mp3|wav|ogg|m4a|flac|aac|opus|webm)$/i.test(f.name)
+  );
+  if (!audios.length) return;
+  const form = new FormData();
+  for (const f of audios) form.append("files", f);
+  statusText.textContent = "در حال آپلود...";
+  try {
+    const res = await fetch("/api/upload", { method: "POST", body: form });
+    const data = await res.json();
+    statusText.textContent = `آپلود: ${data.saved.length} فایل`;
+    send({ type: "tracks_changed" });
+    await loadTracks();
+    setTimeout(() => { if (wsReady) statusText.textContent = "متصل"; }, 2000);
+  } catch {
+    statusText.textContent = "آپلود ناموفق";
+  }
+}
+
+// ================= render =================
+function fmt(sec) {
+  if (!sec || !isFinite(sec)) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60).toString().padStart(2, "0");
+  return `${m}:${s}`;
+}
+function renderTracks() {
+  countEl.textContent = `(${tracks.length})`;
+  tracksEl.innerHTML = "";
+  tracks.forEach((t, i) => {
+    const li = document.createElement("li");
+    li.className = "track" + (i === current ? " active" : "");
+    const idx = document.createElement("span");
+    idx.className = "idx";
+    idx.textContent = i === current ? "▶" : String(i + 1);
+    const name = document.createElement("span");
+    name.className = "name";
+    name.textContent = t.name.replace(/\.[^.]+$/, "");
+    const rm = document.createElement("button");
+    rm.className = "remove"; rm.textContent = "✕"; rm.title = "حذف";
+    li.append(idx, name, rm);
+    li.addEventListener("click", (e) => {
+      if (e.target === rm) return;
+      breakFollow();
+      playIndex(i, true, 0);
+      haptic(5);
+    });
+    rm.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`حذف "${t.name}"؟`)) return;
+      await fetch(`/api/track?name=${encodeURIComponent(t.name)}`, { method: "DELETE" });
+      send({ type: "tracks_changed" });
+      await loadTracks();
+    });
+    tracksEl.appendChild(li);
+  });
+}
+
+// ================= playback =================
+function playIndex(i, autoplay = true, startAt = 0) {
+  if (i < 0 || i >= tracks.length) return;
+  ensureAudioGraph();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+  current = i;
+  const t = tracks[i];
+  audio.src = `/stream/${encodeURIComponent(t.name)}`;
+  titleEl.textContent = t.name.replace(/\.[^.]+$/, "");
+  subtitleEl.textContent = `${(t.size / 1024 / 1024).toFixed(2)} MB`;
+  audio.addEventListener("loadedmetadata", function once() {
+    audio.removeEventListener("loadedmetadata", once);
+    if (startAt > 0) audio.currentTime = startAt;
+    if (autoplay) audio.play().catch((err) => console.warn("play failed:", err));
+  });
+  renderTracks();
+}
+function togglePlay() {
+  if (current === -1 && tracks.length) return playIndex(0, true, 0);
+  if (audio.paused) { ensureAudioGraph(); audioCtx.resume(); audio.play(); }
+  else audio.pause();
+}
+function nextTrack(userAction = false) {
+  if (!tracks.length) return;
+  if (repeat === "one" && !userAction) { audio.currentTime = 0; audio.play(); return; }
+  if (shuffle) {
+    let n;
+    do { n = Math.floor(Math.random() * tracks.length); }
+    while (tracks.length > 1 && n === current);
+    playIndex(n); return;
+  }
+  let n = current + 1;
+  if (n >= tracks.length) {
+    if (repeat === "all" || userAction) n = 0;
+    else { audio.pause(); return; }
+  }
+  playIndex(n);
+}
+function prevTrack() {
+  if (!tracks.length) return;
+  if (audio.currentTime > 3) { audio.currentTime = 0; return; }
+  let n = current - 1;
+  if (n < 0) n = repeat === "all" ? tracks.length - 1 : 0;
+  playIndex(n);
+}
+
+// ================= mobile sheet =================
+function isMobile() { return window.innerWidth <= 900; }
+playerPanel.addEventListener("click", (e) => {
+  if (!isMobile()) return;
+  if (playerPanel.classList.contains("expanded")) return;
+  if (e.target.closest(".ctrl") || e.target.closest(".remove")) return;
+  playerPanel.classList.add("expanded");
+  document.body.classList.add("player-open");
+  haptic(10);
+});
+closeBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  playerPanel.classList.remove("expanded");
+  document.body.classList.remove("player-open");
+  haptic(6);
+});
+let swipeStart = null;
+playerPanel.addEventListener("touchstart", (e) => {
+  if (!playerPanel.classList.contains("expanded")) return;
+  if (e.target.closest(".progress, .controls, .volume-row, input, button")) return;
+  swipeStart = { y: e.touches[0].clientY, x: e.touches[0].clientX };
+  playerPanel.style.transition = "none";
+}, { passive: true });
+playerPanel.addEventListener("touchmove", (e) => {
+  if (!swipeStart) return;
+  const dy = e.touches[0].clientY - swipeStart.y;
+  const dx = e.touches[0].clientX - swipeStart.x;
+  if (Math.abs(dx) > Math.abs(dy) && Math.abs(dy) < 10) {
+    swipeStart = null; playerPanel.style.transition = ""; return;
+  }
+  if (dy > 0) playerPanel.style.transform = `translateY(${dy}px)`;
+}, { passive: true });
+playerPanel.addEventListener("touchend", (e) => {
+  if (!swipeStart) return;
+  const dy = e.changedTouches[0].clientY - swipeStart.y;
+  playerPanel.style.transition = "";
+  playerPanel.style.transform = "";
+  swipeStart = null;
+  if (dy > 110) {
+    playerPanel.classList.remove("expanded");
+    document.body.classList.remove("player-open");
+    haptic(6);
+  }
+});
+window.addEventListener("resize", () => {
+  if (!isMobile()) {
+    playerPanel.classList.remove("expanded");
+    document.body.classList.remove("player-open");
+    playerPanel.style.transform = "";
+  }
+});
+
+// ================= events =================
+playBtn.addEventListener("click", (e) => { e.stopPropagation(); breakFollow(); togglePlay(); haptic(8); });
+nextBtn.addEventListener("click", () => { breakFollow(); nextTrack(true); haptic(5); });
+prevBtn.addEventListener("click", () => { breakFollow(); prevTrack(); haptic(5); });
+
+audio.addEventListener("play", () => {
+  playBtn.textContent = "⏸";
+  document.body.classList.add("playing");
+  sendPresence(true);
+});
+audio.addEventListener("pause", () => {
+  playBtn.textContent = "▶";
+  document.body.classList.remove("playing");
+  sendPresence(true);
+});
+audio.addEventListener("ended", () => nextTrack(false));
+audio.addEventListener("timeupdate", () => {
+  if (!audio.duration) return;
+  const p = (audio.currentTime / audio.duration) * 100;
+  fillEl.style.width = p + "%";
+  miniProgressFill.style.width = p + "%";
+  curEl.textContent = fmt(audio.currentTime);
+});
+audio.addEventListener("loadedmetadata", () => { durEl.textContent = fmt(audio.duration); });
+
+// seek
+let dragging = false;
+function seekFromEvent(e) {
+  if (!audio.duration) return;
+  const r = progress.getBoundingClientRect();
+  const p = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+  const t = p * audio.duration;
+  audio.currentTime = t;
+  fillEl.style.width = (p * 100) + "%";
+  miniProgressFill.style.width = (p * 100) + "%";
+  curEl.textContent = fmt(t);
+  return t;
+}
+progress.addEventListener("pointerdown", (e) => {
+  if (!audio.duration) return;
+  dragging = true;
+  breakFollow();
+  progress.setPointerCapture(e.pointerId);
+  seekFromEvent(e);
+});
+progress.addEventListener("pointermove", (e) => { if (dragging) seekFromEvent(e); });
+progress.addEventListener("pointerup", () => { dragging = false; sendPresence(true); haptic(5); });
+progress.addEventListener("pointercancel", () => { dragging = false; });
+
+volume.addEventListener("input", () => {
+  audio.volume = +volume.value;
+  volLabel.textContent = Math.round(audio.volume * 100) + "%";
+});
+audio.volume = +volume.value;
+
+shuffleBtn.addEventListener("click", (e) => { e.stopPropagation(); shuffle = !shuffle; shuffleBtn.classList.toggle("active", shuffle); haptic(5); });
+repeatBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  repeat = repeat === "off" ? "all" : repeat === "all" ? "one" : "off";
+  repeatBtn.classList.toggle("active", repeat !== "off");
+  repeatBtn.textContent = repeat === "one" ? "🔂" : "🔁";
+  haptic(5);
+});
+
+$("addBtn").addEventListener("click", () => fileInput.click());
+$("refreshBtn").addEventListener("click", loadTracks);
+fileInput.addEventListener("change", () => {
+  if (fileInput.files.length) uploadFiles(fileInput.files);
+  fileInput.value = "";
+});
+
+drop.addEventListener("click", () => fileInput.click());
+["dragenter", "dragover"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); })
+);
+["dragleave", "drop"].forEach((ev) =>
+  drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); })
+);
+drop.addEventListener("drop", (e) => { if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files); });
+document.addEventListener("dragover", (e) => e.preventDefault());
+document.addEventListener("drop", (e) => {
+  e.preventDefault();
+  if (e.dataTransfer?.files?.length) uploadFiles(e.dataTransfer.files);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.code === "Space") { e.preventDefault(); breakFollow(); togglePlay(); }
+  else if (e.code === "ArrowRight") { breakFollow(); audio.currentTime = Math.min(audio.duration || 0, audio.currentTime + 5); }
+  else if (e.code === "ArrowLeft") { breakFollow(); audio.currentTime = Math.max(0, audio.currentTime - 5); }
+  else if (e.code === "ArrowUp") { e.preventDefault(); volume.value = Math.min(1, +volume.value + 0.05); volume.dispatchEvent(new Event("input")); }
+  else if (e.code === "ArrowDown") { e.preventDefault(); volume.value = Math.max(0, +volume.value - 0.05); volume.dispatchEvent(new Event("input")); }
+  else if (e.code === "KeyN") { breakFollow(); nextTrack(true); }
+  else if (e.code === "KeyP") { breakFollow(); prevTrack(); }
+  else if (e.code === "Escape" && playerPanel.classList.contains("expanded")) {
+    playerPanel.classList.remove("expanded");
+    document.body.classList.remove("player-open");
+  }
+});
+
+window.addEventListener("beforeunload", () => sendPresence(true));
+
+// ================= boot =================
+if (myName) {
+  connectWS();
+  loadTracks();
+} else {
+  askName();
+}
+</script>
+</body>
+</html>
